@@ -28,27 +28,35 @@
     },
     {
       id: 3,
-      sheet: "Hoja 3",
-      title: "Atención en caja",
-      description: "Primero busca el ID, completa Caja 1 o 2 y presiona Siguiente para registrar T. inicio caja. Luego completa Pagó y # de caja y presiona Check para registrar T. fin caja.",
+      sheet: "Hoja 3A",
+      title: "Inicio de atención en caja",
+      description: "Busca el ID de Hoja 2, selecciona Caja 1 o 2 y presiona Check para registrar T. inicio caja. Si el ID ya fue registrado aquí, no se podrá actualizar ni duplicar.",
       previous: 2,
-      columns: ["#ID ", "Caja 1 o 2", "T. inicio caja", "Pagó", "# de caja", "T. fin caja"],
-      startFields: [
+      columns: ["#ID ", "Caja 1 o 2", "T. inicio caja"],
+      fields: [
         { key: "cajaInicio", label: "Caja 1 o 2", type: "select", options: ["1", "2"] }
       ],
-      startTimeKey: "T. inicio caja",
-      finishFields: [
+      timeKey: "T. inicio caja"
+    },
+    {
+      id: 9,
+      sheet: "Hoja 3B",
+      title: "Fin de atención en caja",
+      description: "Busca el ID que ya completó Hoja 3A, selecciona Pagó y completa # de caja. Al presionar Check se registra T. fin caja. Si el ID ya fue registrado aquí, no se podrá actualizar ni duplicar.",
+      previous: 3,
+      columns: ["#ID ", "Pagó", "# de caja", "T. fin caja"],
+      fields: [
         { key: "pago", label: "Pagó", type: "select", options: ["Yape/Plin", "Tarjeta", "Efectivo"] },
         { key: "cajaFin", label: "# de caja", type: "number", min: 0, placeholder: "Ej. 2" }
       ],
-      finishTimeKey: "T. fin caja"
+      timeKey: "T. fin caja"
     },
     {
       id: 4,
       sheet: "Hoja 4",
       title: "Zona de entrega",
-      description: "Si Reservó = 0, el ID debe venir de Hoja 3. Si Reservó = 1, puedes buscar un ID existente o crear uno nuevo si no aparece.",
-      previous: 3,
+      description: "Si Reservó = 0, el ID debe venir de Hoja 3B. Si Reservó = 1, puedes buscar un ID existente o crear uno nuevo si no aparece.",
+      previous: 9,
       columns: ["#ID ", "Reservó 1 o 0", "# cola entrega", "T. zona de entrega"],
       fields: [
         { key: "reservo", label: "Reservó 1 o 0", type: "select", options: ["1", "0"], special: "reservo" },
@@ -183,8 +191,9 @@
       try {
         const response = await fetch(`${fb.databaseURL}/${fb.path}.json?ts=${Date.now()}`);
         if (!response.ok) throw new Error(`Firebase respondió ${response.status}`);
-        const remote = restoreFromFirebase(await response.json());
-        if (remote && remote.records) {
+        const remoteRaw = await response.json();
+        const remote = restoreFromFirebase(remoteRaw);
+        if (remoteRaw) {
           state = normalizeState(remote);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
           updateSaveLabel();
@@ -215,12 +224,30 @@
   }
 
   function normalizeState(raw) {
-    return {
+    const normalized = {
       version: raw?.version || 1,
       records: raw?.records || {},
       history: Array.isArray(raw?.history) ? raw.history : [],
       lastSavedAt: raw?.lastSavedAt || null
     };
+    migrateScenario3Split(normalized);
+    return normalized;
+  }
+
+  function migrateScenario3Split(data) {
+    Object.values(data.records || {}).forEach(record => {
+      if (!record.stages) record.stages = {};
+      const oldStage3 = record.stages[3];
+      if (!oldStage3) return;
+
+      const hasFinishData = oldStage3["Pagó"] || oldStage3["# de caja"] || oldStage3["T. fin caja"];
+      if (hasFinishData && !record.stages[9]) {
+        record.stages[9] = {};
+        ["Pagó", "# de caja", "T. fin caja"].forEach(key => {
+          if (oldStage3[key] !== undefined) record.stages[9][key] = oldStage3[key];
+        });
+      }
+    });
   }
 
   async function persistState() {
@@ -253,6 +280,24 @@
   }
 
 
+
+  async function syncBeforeWrite() {
+    const fb = getFirebaseConfig();
+    if (!fb.enabled) return;
+
+    try {
+      const response = await fetch(`${fb.databaseURL}/${fb.path}.json?ts=${Date.now()}`);
+      if (!response.ok) throw new Error(`Firebase respondió ${response.status}`);
+      const remote = normalizeState(restoreFromFirebase(await response.json()) || {});
+      state = remote;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      updateSaveLabel();
+    } catch (error) {
+      console.warn(error);
+      showNotice("No se pudo validar Firebase antes de guardar. Intenta presionar Actualizar y vuelve a probar.", "error");
+      throw error;
+    }
+  }
 
   function prepareForFirebase(value) {
     return transformFirebaseKeys(value, encodeFirebaseKey);
@@ -352,7 +397,7 @@
   function renderDashboard() {
     const cards = [
       ["Hoja 1", countCompleted(1), "llegaron"],
-      ["Hoja 3", countCompleted(3), "pagaron/finalizaron caja"],
+      ["Hoja 3B", countCompleted(9), "finalizaron caja"],
       ["Hoja 7", countCompleted(7), "finalizaron entrega"],
       ["Hoja 8", countCompleted(8), "se sentaron"]
     ];
@@ -372,9 +417,7 @@
     els.description.textContent = scenario.description;
     els.form.innerHTML = "";
 
-    if (scenario.id === 3) {
-      renderScenario3Form(scenario);
-    } else if (scenario.id === 4) {
+    if (scenario.id === 4) {
       renderScenario4Form(scenario);
     } else {
       renderStandardForm(scenario);
@@ -422,8 +465,8 @@
         idInput.placeholder = "Buscar o escribir ID nuevo";
         help.textContent = "Reservó = 1: puedes buscar un ID existente o escribir uno nuevo si no aparece.";
       } else {
-        idInput.placeholder = "Buscar ID de Hoja 3";
-        help.textContent = "Reservó = 0: el ID debe existir y venir de Hoja 3.";
+        idInput.placeholder = "Buscar ID de Hoja 3B";
+        help.textContent = "Reservó = 0: el ID debe existir y venir de Hoja 3B.";
       }
     };
     reservoInput.addEventListener("change", toggleMode);
@@ -436,11 +479,12 @@
     wrapper.className = "form-row";
 
     const datalistId = `ids-s${scenario.id}`;
+    const previousSheet = scenario.previous ? (getScenario(scenario.previous)?.sheet || `Hoja ${scenario.previous}`) : "";
     wrapper.innerHTML = `
       <label for="recordId">#ID</label>
-      <input id="recordId" list="${datalistId}" inputmode="numeric" placeholder="${scenario.previous ? `Buscar ID de Hoja ${scenario.previous}` : "Ej. 100"}" />
+      <input id="recordId" list="${datalistId}" inputmode="numeric" placeholder="${scenario.previous ? `Buscar ID de ${previousSheet}` : "Ej. 100"}" />
       <datalist id="${datalistId}">${getIdOptions(scenario).map(id => `<option value="${escapeHtml(id)}"></option>`).join("")}</datalist>
-      <small id="idHelp">${scenario.previous ? "Solo aparecen IDs que ya completaron el escenario anterior." : "Puedes usar los IDs precargados de 100 a 848."}</small>
+      <small id="idHelp">${scenario.previous ? `Solo aparecen IDs que ya completaron ${previousSheet}.` : "Puedes usar los IDs precargados de 100 a 848."}</small>
     `;
     return wrapper;
   }
@@ -503,12 +547,22 @@
     const id = getCleanId();
     if (!id) return showNotice("Ingresa un ID válido.", "error");
 
-    if (scenario.previous && !isEligibleForScenario(id, scenario.id)) {
-      return showNotice(`Este ID todavía no completó la Hoja ${scenario.previous}.`, "error");
-    }
-
     const fieldValues = collectFields(scenario.fields || []);
     if (!fieldValues.ok) return showNotice(fieldValues.message, "error");
+
+    try {
+      await syncBeforeWrite();
+    } catch (_) {
+      return;
+    }
+
+    if (scenario.previous && !isEligibleForScenario(id, scenario.id)) {
+      return showNotice(`Este ID todavía no completó la ${getScenario(scenario.previous)?.sheet || `Hoja ${scenario.previous}`}.`, "error");
+    }
+
+    if (isStageComplete(state.records[id], scenario.id)) {
+      return showNotice(`Este ID ya fue registrado en ${scenario.sheet}. No se actualizó para evitar duplicados.`, "error");
+    }
 
     const record = ensureRecord(id);
     record.stages[scenario.id] = record.stages[scenario.id] || {};
@@ -576,12 +630,22 @@
     const reservo = document.getElementById("field-reservo")?.value;
     if (reservo !== "1" && reservo !== "0") return showNotice("Selecciona Reservó 1 o 0.", "error");
 
-    if (reservo === "0" && !isEligibleForScenario(id, scenario.id)) {
-      return showNotice("Reservó = 0: el ID debe existir y haber completado Hoja 3.", "error");
-    }
-
     const fieldValues = collectFields(scenario.fields || []);
     if (!fieldValues.ok) return showNotice(fieldValues.message, "error");
+
+    try {
+      await syncBeforeWrite();
+    } catch (_) {
+      return;
+    }
+
+    if (reservo === "0" && !isEligibleForScenario(id, scenario.id)) {
+      return showNotice("Reservó = 0: el ID debe existir y haber completado Hoja 3B.", "error");
+    }
+
+    if (isStageComplete(state.records[id], scenario.id)) {
+      return showNotice(`Este ID ya fue registrado en ${scenario.sheet}. No se actualizó para evitar duplicados.`, "error");
+    }
 
     const record = ensureRecord(id);
     record.stages[4] = record.stages[4] || {};
@@ -650,7 +714,8 @@
   function isStageComplete(record, scenarioId) {
     if (!record?.stages?.[scenarioId]) return false;
     const scenario = getScenario(scenarioId);
-    if (scenarioId === 3) return Boolean(record.stages[3][scenario.finishTimeKey]);
+    if (!scenario) return false;
+    if (scenario.finishTimeKey) return Boolean(record.stages[scenarioId][scenario.finishTimeKey]);
     return Boolean(record.stages[scenarioId][scenario.timeKey]);
   }
 
