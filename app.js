@@ -3,6 +3,36 @@
   const STORAGE_KEY = CONFIG.storageKey || "monitor-comedor-escenarios-v1";
   const PRELOADED_IDS = Array.from({ length: 749 }, (_, i) => String(100 + i));
 
+  const FIELD_HELP = {
+    "#ID": "Número de sticker del cliente. Solo números. Si escribes 001, se guardará como 1.",
+    "#ID ": "Número de sticker del cliente. Solo números. Si escribes 001, se guardará como 1.",
+    "# pers. en caja": "Coloca el número de personas delante del cliente en el momento que hace la cola en caja.",
+    "Caja 1 o 2": "Coloca 1 o 2 solo cuando inicia la atención en caja.",
+    "Pagó": "Selecciona el tipo de pago. Si el alumno se retira al ser atendido porque ya no hay menú/producto, marca Abandonó.",
+    "# de caja": "Coloca 1 o 2 según la caja donde finaliza la atención.",
+    "Reservó 1 o 0": "Si reservó, coloca 1. Si no reservó, coloca 0.",
+    "# cola entrega": "Coloca el número de personas delante del cliente cuando está en la sección de bandejas/zona de entrega.",
+    "Tipo pedido": "Selecciona el pedido realizado cuando entrega el ticket y empieza la atención de entradas.",
+    "# trab. entregan": "Coloca el número de trabajadores sirviendo justo cuando el primer trabajador de entrada comunica el tipo de pedido.",
+    "# A. ocupados perso": "Número de asientos ocupados por personas cuando el usuario se sentó.",
+    "# A. libres": "Número de asientos libres observados cuando el usuario se sentó.",
+    "# A. mochila o lonchera": "Número de asientos ocupados por mochila o lonchera cuando el usuario se sentó.",
+    "Disp. mesas": "Selecciona la disponibilidad solo cuando el usuario se sentó en su mesa.",
+    "Abandonó cola 1 o 0": "Si abandonó la cola, coloca 1. Si no abandonó, coloca 0.",
+    "Motivo abandonó": "Pregunta por qué se fue y selecciona el motivo correspondiente.",
+    "Incidencias": "Observaciones detectadas en caja o en cualquier zona del proceso."
+  };
+
+  const NUMERIC_FIELD_LABELS = new Set([
+    "# pers. en caja",
+    "# de caja",
+    "# cola entrega",
+    "# trab. entregan",
+    "# A. ocupados perso",
+    "# A. libres",
+    "# A. mochila o lonchera"
+  ]);
+
   const SCENARIOS = [
     {
       id: 1,
@@ -47,7 +77,7 @@
       columns: ["#ID ", "Pagó", "# de caja", "T. fin caja"],
       fields: [
         { key: "pago", label: "Pagó", type: "select", options: ["Yape/Plin", "Tarjeta", "Efectivo", "Abandonó"] },
-        { key: "cajaFin", label: "# de caja", type: "number", min: 0, placeholder: "Ej. 2" }
+        { key: "cajaFin", label: "# de caja", type: "select", options: ["1", "2"] }
       ],
       timeKey: "T. fin caja"
     },
@@ -522,6 +552,7 @@
       { label: "Check", onClick: () => handleStandardCheck(scenario) }
     ]));
     attachIdAutofill(scenario);
+    attachEnterSubmitForSingleIdScenario(scenario);
   }
 
   function renderScenario3Form(scenario) {
@@ -607,11 +638,12 @@
     const datalistId = `ids-s${scenario.id}`;
     const previousSheet = scenario.previous ? (getScenario(scenario.previous)?.sheet || `Hoja ${scenario.previous}`) : "";
     wrapper.innerHTML = `
-      <label for="recordId">#ID</label>
-      <input id="recordId" list="${datalistId}" inputmode="numeric" placeholder="${scenario.previous ? `Buscar ID de ${previousSheet}` : "Ej. 100"}" />
+      ${createLabelHtml("recordId", "#ID")}
+      <input id="recordId" list="${datalistId}" inputmode="numeric" pattern="[0-9]*" placeholder="${scenario.previous ? `Buscar ID de ${previousSheet}` : "Ej. 100"}" />
       <datalist id="${datalistId}">${getIdOptions(scenario).map(id => `<option value="${escapeHtml(id)}"></option>`).join("")}</datalist>
       <small id="idHelp">${scenario.previous ? `Solo aparecen IDs que ya completaron ${previousSheet}.` : "Puedes usar los IDs precargados de 100 a 848. Si escribes 001, se guardará como 1."}</small>
     `;
+    setTimeout(() => attachNumericCleaner(document.getElementById("recordId"), { normalizeOnBlur: false }), 0);
     return wrapper;
   }
 
@@ -620,6 +652,7 @@
     wrapper.className = "form-row";
     const id = `field-${field.key}`;
     const min = field.min !== undefined ? `min="${field.min}"` : "";
+    const isNumeric = field.type === "number" || NUMERIC_FIELD_LABELS.has(field.label);
 
     let inputHtml = "";
     if (field.type === "select") {
@@ -628,12 +661,49 @@
           <option value="">Selecciona...</option>
           ${field.options.map(option => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join("")}
         </select>`;
+    } else if (isNumeric) {
+      inputHtml = `<input id="${id}" data-key="${field.key}" data-label="${escapeHtml(field.label)}" data-numeric="true" type="text" inputmode="numeric" pattern="[0-9]*" ${min} placeholder="${escapeHtml(field.placeholder || "")}" />`;
     } else {
       inputHtml = `<input id="${id}" data-key="${field.key}" data-label="${escapeHtml(field.label)}" type="${field.type || "text"}" ${min} placeholder="${escapeHtml(field.placeholder || "")}" />`;
     }
 
-    wrapper.innerHTML = `<label for="${id}">${escapeHtml(field.label)}</label>${inputHtml}`;
+    wrapper.innerHTML = `${createLabelHtml(id, field.label)}${inputHtml}`;
+    if (isNumeric) setTimeout(() => attachNumericCleaner(document.getElementById(id), { normalizeOnBlur: true }), 0);
     return wrapper;
+  }
+
+
+  function createLabelHtml(forId, label) {
+    const definition = FIELD_HELP[label] || FIELD_HELP[label?.trim?.()] || "";
+    const helpHtml = definition
+      ? `<span class="help-wrap"><button class="help-icon" type="button" aria-label="Ayuda: ${escapeHtml(label)}" title="${escapeHtml(definition)}">?</button><span class="help-popover">${escapeHtml(definition)}</span></span>`
+      : "";
+    return `<label class="field-label" for="${forId}"><span>${escapeHtml(label)}</span>${helpHtml}</label>`;
+  }
+
+  function attachNumericCleaner(input, options = {}) {
+    if (!input || input.dataset.numericCleaner === "1") return;
+    input.dataset.numericCleaner = "1";
+    input.addEventListener("input", () => {
+      const cleaned = input.value.replace(/\D/g, "");
+      if (input.value !== cleaned) input.value = cleaned;
+    });
+    if (options.normalizeOnBlur) {
+      input.addEventListener("blur", () => {
+        if (/^\d+$/.test(input.value)) input.value = normalizeIdValue(input.value);
+      });
+    }
+  }
+
+  function attachEnterSubmitForSingleIdScenario(scenario) {
+    if (![1, 7].includes(Number(scenario.id)) || (scenario.fields || []).length > 0) return;
+    const idInput = document.getElementById("recordId");
+    if (!idInput) return;
+    idInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      handleStandardCheck(scenario);
+    });
   }
 
   function createActionsRow(actions) {
@@ -827,7 +897,10 @@
       const input = document.getElementById(`field-${field.key}`);
       const value = input?.value?.trim() ?? "";
       if (value === "") return { ok: false, message: `Completa el campo: ${field.label}` };
-      values[field.label] = value;
+      if ((field.type === "number" || NUMERIC_FIELD_LABELS.has(field.label)) && !/^\d+$/.test(value)) {
+        return { ok: false, message: `${field.label} solo permite números enteros, sin letras ni símbolos.` };
+      }
+      values[field.label] = (field.type === "number" || NUMERIC_FIELD_LABELS.has(field.label)) ? normalizeIdValue(value) : value;
     }
     return { ok: true, values };
   }

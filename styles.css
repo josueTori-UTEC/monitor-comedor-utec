@@ -225,3 +225,83 @@ tr:hover td { background: #fbfcff; }
   button { padding: 0.78rem 0.85rem; }
   input, select { padding: 0.78rem 0.8rem; }
 }
+
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: fit-content;
+  position: relative;
+}
+.help-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.help-icon {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #eef2ff;
+  color: var(--primary-dark);
+  box-shadow: none;
+  font-size: 0.78rem;
+  line-height: 1;
+  font-weight: 850;
+}
+.help-icon:hover,
+.help-icon:focus {
+  background: #dce5ff;
+  outline: none;
+}
+.help-popover {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  width: min(280px, 78vw);
+  padding: 0.65rem 0.75rem;
+  background: #172033;
+  color: #fff;
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(23,32,51,0.22);
+  z-index: 90;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.help-popover::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  border: 7px solid transparent;
+  border-top-color: #172033;
+}
+.help-wrap:hover .help-popover,
+.help-wrap:focus-within .help-popover {
+  display: block;
+}
+
+@media (max-width: 520px) {
+  .field-label { width: 100%; }
+  .help-popover {
+    left: auto;
+    right: -4px;
+    transform: none;
+    width: min(300px, 82vw);
+  }
+  .help-popover::after {
+    left: auto;
+    right: 10px;
+    transform: none;
+  }
+}
