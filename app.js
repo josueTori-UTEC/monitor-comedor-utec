@@ -183,7 +183,7 @@
       try {
         const response = await fetch(`${fb.databaseURL}/${fb.path}.json?ts=${Date.now()}`);
         if (!response.ok) throw new Error(`Firebase respondió ${response.status}`);
-        const remote = await response.json();
+        const remote = restoreFromFirebase(await response.json());
         if (remote && remote.records) {
           state = normalizeState(remote);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -233,7 +233,7 @@
 
     try {
       const remoteResponse = await fetch(`${fb.databaseURL}/${fb.path}.json?ts=${Date.now()}`);
-      const remoteState = remoteResponse.ok ? await remoteResponse.json() : null;
+      const remoteState = remoteResponse.ok ? restoreFromFirebase(await remoteResponse.json()) : null;
       state = mergeStates(normalizeState(remoteState || {}), state);
       state.lastSavedAt = new Date().toISOString();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -242,7 +242,7 @@
       const response = await fetch(`${fb.databaseURL}/${fb.path}.json`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state)
+        body: JSON.stringify(prepareForFirebase(state))
       });
       if (!response.ok) throw new Error(`Firebase respondió ${response.status}`);
       showNotice("Guardado en Firebase correctamente.", "success");
@@ -250,6 +250,46 @@
       console.warn(error);
       showNotice("Se guardó localmente, pero no se pudo guardar en Firebase. Revisa config.js y las reglas de la base.", "error");
     }
+  }
+
+
+
+  function prepareForFirebase(value) {
+    return transformFirebaseKeys(value, encodeFirebaseKey);
+  }
+
+  function restoreFromFirebase(value) {
+    return transformFirebaseKeys(value, decodeFirebaseKey);
+  }
+
+  function transformFirebaseKeys(value, keyTransform) {
+    if (Array.isArray(value)) return value.map(item => transformFirebaseKeys(item, keyTransform));
+    if (!value || typeof value !== "object") return value;
+    const output = {};
+    Object.entries(value).forEach(([key, childValue]) => {
+      output[keyTransform(key)] = transformFirebaseKeys(childValue, keyTransform);
+    });
+    return output;
+  }
+
+  function encodeFirebaseKey(key) {
+    return String(key)
+      .replaceAll(".", "__dot__")
+      .replaceAll("#", "__hash__")
+      .replaceAll("$", "__dollar__")
+      .replaceAll("/", "__slash__")
+      .replaceAll("[", "__lb__")
+      .replaceAll("]", "__rb__");
+  }
+
+  function decodeFirebaseKey(key) {
+    return String(key)
+      .replaceAll("__dot__", ".")
+      .replaceAll("__hash__", "#")
+      .replaceAll("__dollar__", "$")
+      .replaceAll("__slash__", "/")
+      .replaceAll("__lb__", "[")
+      .replaceAll("__rb__", "]");
   }
 
   function mergeStates(remote, local) {
