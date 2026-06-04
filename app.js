@@ -254,8 +254,52 @@
       history: Array.isArray(raw?.history) ? raw.history : [],
       lastSavedAt: raw?.lastSavedAt || null
     };
+
+    // Corrige IDs con ceros a la izquierda: 001, 01 y 1 se tratan como el mismo ID.
+    normalized.records = normalizeRecordIds(normalized.records);
+    normalized.history = normalizeHistoryIds(normalized.history);
     migrateScenario3Split(normalized);
+    normalized.records = normalizeRecordIds(normalized.records);
+    normalized.history = normalizeHistoryIds(normalized.history);
     return normalized;
+  }
+
+  function normalizeIdValue(value) {
+    const text = String(value ?? "").trim();
+    if (!/^\d+$/.test(text)) return text;
+    return text.replace(/^0+/, "") || "0";
+  }
+
+  function normalizeRecordIds(records) {
+    const output = {};
+    Object.entries(records || {}).forEach(([key, record]) => {
+      const canonicalId = normalizeIdValue(record?.id ?? key);
+      if (!canonicalId) return;
+      const cleanRecord = {
+        ...(record || {}),
+        id: canonicalId,
+        stages: record?.stages || {}
+      };
+
+      if (!output[canonicalId]) {
+        output[canonicalId] = cleanRecord;
+        return;
+      }
+
+      // Si ya existía el mismo ID sin ceros, no se sobreescriben sus tiempos.
+      const existing = output[canonicalId];
+      existing.stages = existing.stages || {};
+      Object.entries(cleanRecord.stages || {}).forEach(([stageId, stage]) => {
+        existing.stages[stageId] = { ...(stage || {}), ...(existing.stages[stageId] || {}) };
+      });
+      existing.createdAt = existing.createdAt || cleanRecord.createdAt;
+      existing.updatedAt = existing.updatedAt || cleanRecord.updatedAt;
+    });
+    return output;
+  }
+
+  function normalizeHistoryIds(history) {
+    return (history || []).map(item => ({ ...item, id: normalizeIdValue(item?.id) }));
   }
 
   function migrateScenario3Split(data) {
@@ -566,7 +610,7 @@
       <label for="recordId">#ID</label>
       <input id="recordId" list="${datalistId}" inputmode="numeric" placeholder="${scenario.previous ? `Buscar ID de ${previousSheet}` : "Ej. 100"}" />
       <datalist id="${datalistId}">${getIdOptions(scenario).map(id => `<option value="${escapeHtml(id)}"></option>`).join("")}</datalist>
-      <small id="idHelp">${scenario.previous ? `Solo aparecen IDs que ya completaron ${previousSheet}.` : "Puedes usar los IDs precargados de 100 a 848."}</small>
+      <small id="idHelp">${scenario.previous ? `Solo aparecen IDs que ya completaron ${previousSheet}.` : "Puedes usar los IDs precargados de 100 a 848. Si escribes 001, se guardará como 1."}</small>
     `;
     return wrapper;
   }
@@ -609,11 +653,17 @@
   function attachIdAutofill(scenario) {
     const idInput = document.getElementById("recordId");
     if (!idInput) return;
-    idInput.addEventListener("change", () => fillFormFromRecord(scenario, idInput.value.trim()));
-    idInput.addEventListener("blur", () => fillFormFromRecord(scenario, idInput.value.trim()));
+    const normalizeAndFill = () => {
+      const raw = idInput.value.trim();
+      if (/^\d+$/.test(raw)) idInput.value = normalizeIdValue(raw);
+      fillFormFromRecord(scenario, idInput.value.trim());
+    };
+    idInput.addEventListener("change", normalizeAndFill);
+    idInput.addEventListener("blur", normalizeAndFill);
   }
 
   function fillFormFromRecord(scenario, id) {
+    id = normalizeIdValue(id);
     const record = state.records[id];
     const stage = record?.stages?.[scenario.id];
     if (!stage) return;
@@ -749,6 +799,7 @@
   async function handleDeleteId() {
     const rawId = getRawIdValue("deleteId");
     if (!rawId) return showNotice("Ingresa el ID que deseas borrar.", "error");
+    const idToDelete = hasOnlyNumericId(rawId) ? normalizeIdValue(rawId) : rawId;
 
     try {
       await syncBeforeWrite();
@@ -756,18 +807,18 @@
       return;
     }
 
-    if (!state.records[rawId]) {
+    if (!state.records[idToDelete]) {
       renderScenario();
       return showNotice("Ese ID no existe en la base actual.", "error");
     }
 
-    if (!confirm(`¿Seguro que quieres borrar el ID ${rawId} de todas las hojas? Esta acción se guardará en Firebase.`)) return;
+    if (!confirm(`¿Seguro que quieres borrar el ID ${idToDelete} de todas las hojas? Esta acción se guardará en Firebase.`)) return;
 
-    delete state.records[rawId];
-    state.history = (state.history || []).filter(item => String(item.id) !== String(rawId));
+    delete state.records[idToDelete];
+    state.history = (state.history || []).filter(item => String(normalizeIdValue(item.id)) !== String(idToDelete));
     await persistState({ mergeRemote: false });
     renderAll();
-    showNotice(`ID ${rawId} borrado de todas las hojas y de Firebase.`, "success");
+    showNotice(`ID ${idToDelete} borrado de todas las hojas y de Firebase.`, "success");
   }
 
   function collectFields(fields) {
@@ -785,7 +836,10 @@
     const raw = String(document.getElementById("recordId")?.value || "").trim();
     if (!raw) return "";
     if (!/^\d+$/.test(raw)) return "";
-    return raw;
+    const normalized = normalizeIdValue(raw);
+    const input = document.getElementById("recordId");
+    if (input) input.value = normalized;
+    return normalized;
   }
 
   function getRawIdValue(elementId = "recordId") {
