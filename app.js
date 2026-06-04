@@ -46,7 +46,7 @@
       previous: 3,
       columns: ["#ID ", "Pagó", "# de caja", "T. fin caja"],
       fields: [
-        { key: "pago", label: "Pagó", type: "select", options: ["Yape/Plin", "Tarjeta", "Efectivo"] },
+        { key: "pago", label: "Pagó", type: "select", options: ["Yape/Plin", "Tarjeta", "Efectivo", "Abandonó"] },
         { key: "cajaFin", label: "# de caja", type: "number", min: 0, placeholder: "Ej. 2" }
       ],
       timeKey: "T. fin caja"
@@ -55,7 +55,7 @@
       id: 4,
       sheet: "Hoja 4",
       title: "Zona de entrega",
-      description: "Si Reservó = 0, el ID debe venir de Hoja 3B. Si Reservó = 1, puedes buscar un ID existente o crear uno nuevo si no aparece.",
+      description: "Si Reservó = 0, el ID debe venir de Hoja 3B y no debe haber abandonado. Si Reservó = 1, el ID debe existir previamente en Hoja 1, aunque no haya pasado por Hoja 3B.",
       previous: 9,
       columns: ["#ID ", "Reservó 1 o 0", "# cola entrega", "T. zona de entrega"],
       fields: [
@@ -112,6 +112,16 @@
         { key: "asientosMochila", label: "# A. mochila o lonchera", type: "number", min: 0, placeholder: "Ej. 1" }
       ],
       timeKey: "T. sentarse"
+    },
+    {
+      id: 10,
+      sheet: "Hoja 9",
+      title: "Administración",
+      description: "Zona protegida para borrar un ID de Firebase y de todas las hojas. Requiere contraseña.",
+      previous: null,
+      columns: ["#ID ", "Acción", "Fecha"],
+      fields: [],
+      isAdmin: true
     }
   ];
 
@@ -122,6 +132,7 @@
     lastSavedAt: null
   };
   let activeScenarioId = 1;
+  let adminUnlocked = false;
 
   const els = {
     nav: document.getElementById("scenarioNav"),
@@ -140,7 +151,11 @@
     downloadJson: document.getElementById("downloadJsonBtn"),
     importJson: document.getElementById("importJsonInput"),
     refresh: document.getElementById("refreshBtn"),
-    clearLocal: document.getElementById("clearLocalBtn")
+    clearLocal: document.getElementById("clearLocalBtn"),
+    menuToggle: document.getElementById("menuToggle"),
+    menuClose: document.getElementById("menuClose"),
+    sidebar: document.getElementById("sidebar"),
+    navBackdrop: document.getElementById("navBackdrop")
   };
 
   document.addEventListener("DOMContentLoaded", init);
@@ -163,16 +178,21 @@
     els.refresh.addEventListener("click", async () => {
       await loadState(true);
       renderAll();
-      showNotice("Datos actualizados.", "success");
+      showNotice("Datos recargados desde Firebase.", "success");
     });
-    els.importJson.addEventListener("change", importJsonBackup);
-    els.clearLocal.addEventListener("click", () => {
-      if (!confirm("¿Seguro que deseas borrar los datos guardados en este navegador?")) return;
-      localStorage.removeItem(STORAGE_KEY);
-      state = { version: 1, records: {}, history: [], lastSavedAt: null };
-      renderAll();
-      showNotice("Datos locales borrados. Si usas Firebase, presiona Actualizar para volver a cargar la nube.", "success");
-    });
+    if (els.importJson) els.importJson.addEventListener("change", importJsonBackup);
+    if (els.clearLocal) {
+      els.clearLocal.addEventListener("click", () => {
+        if (!confirm("¿Seguro que deseas borrar los datos guardados en este navegador?")) return;
+        localStorage.removeItem(STORAGE_KEY);
+        state = { version: 1, records: {}, history: [], lastSavedAt: null };
+        renderAll();
+        showNotice("Datos locales borrados. Si usas Firebase, presiona Actualizar datos para volver a cargar la nube.", "success");
+      });
+    }
+    if (els.menuToggle) els.menuToggle.addEventListener("click", openMobileMenu);
+    if (els.menuClose) els.menuClose.addEventListener("click", closeMobileMenu);
+    if (els.navBackdrop) els.navBackdrop.addEventListener("click", closeMobileMenu);
   }
 
   function getFirebaseConfig() {
@@ -199,12 +219,16 @@
           updateSaveLabel();
           return;
         }
-        if (!forceRemote) {
-          const local = readLocalState();
-          state = normalizeState(local);
-          await persistState();
+        if (forceRemote) {
+          state = { version: 1, records: {}, history: [], lastSavedAt: null };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          updateSaveLabel();
           return;
         }
+        const local = readLocalState();
+        state = normalizeState(local);
+        await persistState();
+        return;
       } catch (error) {
         console.warn(error);
         showNotice("No se pudo leer Firebase. Se usará la copia local del navegador.", "error");
@@ -250,7 +274,8 @@
     });
   }
 
-  async function persistState() {
+  async function persistState(options = {}) {
+    const mergeRemote = options.mergeRemote !== false;
     state.lastSavedAt = new Date().toISOString();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     updateSaveLabel();
@@ -259,12 +284,14 @@
     if (!fb.enabled) return;
 
     try {
-      const remoteResponse = await fetch(`${fb.databaseURL}/${fb.path}.json?ts=${Date.now()}`);
-      const remoteState = remoteResponse.ok ? restoreFromFirebase(await remoteResponse.json()) : null;
-      state = mergeStates(normalizeState(remoteState || {}), state);
-      state.lastSavedAt = new Date().toISOString();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      updateSaveLabel();
+      if (mergeRemote) {
+        const remoteResponse = await fetch(`${fb.databaseURL}/${fb.path}.json?ts=${Date.now()}`);
+        const remoteState = remoteResponse.ok ? restoreFromFirebase(await remoteResponse.json()) : null;
+        state = mergeStates(normalizeState(remoteState || {}), state);
+        state.lastSavedAt = new Date().toISOString();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        updateSaveLabel();
+      }
 
       const response = await fetch(`${fb.databaseURL}/${fb.path}.json`, {
         method: "PUT",
@@ -378,16 +405,32 @@
     renderTable();
   }
 
+  function openMobileMenu() {
+    if (!els.sidebar || !els.navBackdrop) return;
+    els.sidebar.classList.add("open");
+    els.navBackdrop.classList.remove("hidden");
+    document.body.classList.add("menu-open");
+  }
+
+  function closeMobileMenu() {
+    if (!els.sidebar || !els.navBackdrop) return;
+    els.sidebar.classList.remove("open");
+    els.navBackdrop.classList.add("hidden");
+    document.body.classList.remove("menu-open");
+  }
+
   function renderNav() {
     els.nav.innerHTML = "";
     SCENARIOS.forEach((scenario) => {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = scenario.id === activeScenarioId ? "active" : "";
-      btn.innerHTML = `<span>${scenario.sheet}<br><small>${escapeHtml(scenario.title)}</small></span><span class="count">${countCompleted(scenario.id)}</span>`;
+      const countLabel = scenario.isAdmin ? "Admin" : countCompleted(scenario.id);
+      btn.innerHTML = `<span>${scenario.sheet}<br><small>${escapeHtml(scenario.title)}</small></span><span class="count">${countLabel}</span>`;
       btn.addEventListener("click", () => {
         activeScenarioId = scenario.id;
         clearNotice();
+        closeMobileMenu();
         renderAll();
       });
       els.nav.appendChild(btn);
@@ -415,9 +458,12 @@
     els.sheet.textContent = scenario.sheet;
     els.title.textContent = scenario.title;
     els.description.textContent = scenario.description;
+    els.exportScenario.disabled = Boolean(scenario.isAdmin);
     els.form.innerHTML = "";
 
-    if (scenario.id === 4) {
+    if (scenario.isAdmin) {
+      renderAdminForm();
+    } else if (scenario.id === 4) {
       renderScenario4Form(scenario);
     } else {
       renderStandardForm(scenario);
@@ -460,18 +506,54 @@
     const reservoInput = document.getElementById("field-reservo");
     const idInput = document.getElementById("recordId");
     const help = document.getElementById("idHelp");
+    const datalist = document.getElementById(`ids-s${scenario.id}`);
     const toggleMode = () => {
       if (reservoInput.value === "1") {
-        idInput.placeholder = "Buscar o escribir ID nuevo";
-        help.textContent = "Reservó = 1: puedes buscar un ID existente o escribir uno nuevo si no aparece.";
+        idInput.placeholder = "Buscar ID registrado en Hoja 1";
+        help.textContent = "Reservó = 1: el ID debe existir en Hoja 1, aunque no haya pasado por Hoja 3B.";
+        if (datalist) datalist.innerHTML = getHoja1Ids().map(id => `<option value="${escapeHtml(id)}"></option>`).join("");
       } else {
         idInput.placeholder = "Buscar ID de Hoja 3B";
-        help.textContent = "Reservó = 0: el ID debe existir y venir de Hoja 3B.";
+        help.textContent = "Reservó = 0: el ID debe existir en Hoja 3B y no debe haber abandonado.";
+        if (datalist) datalist.innerHTML = getIdOptions(scenario).map(id => `<option value="${escapeHtml(id)}"></option>`).join("");
       }
     };
     reservoInput.addEventListener("change", toggleMode);
     toggleMode();
     attachIdAutofill(scenario);
+  }
+
+  function renderAdminForm() {
+    els.form.innerHTML = "";
+    const info = document.createElement("div");
+    info.className = "form-row full admin-info";
+    info.innerHTML = "<strong>Uso:</strong> esta hoja elimina el ID completo de todas las hojas y también lo guarda así en Firebase. Úsala solo para corregir registros de prueba o errores.";
+    els.form.appendChild(info);
+
+    if (!adminUnlocked) {
+      const pass = document.createElement("div");
+      pass.className = "form-row";
+      pass.innerHTML = `<label for="adminPassword">Contraseña</label><input id="adminPassword" type="password" placeholder="Contraseña" autocomplete="off" />`;
+      els.form.appendChild(pass);
+      els.form.appendChild(createActionsRow([
+        { label: "Ingresar", onClick: () => {
+          const value = document.getElementById("adminPassword")?.value || "";
+          if (value !== "santo") return showNotice("Contraseña incorrecta.", "error");
+          adminUnlocked = true;
+          showNotice("Acceso concedido.", "success");
+          renderScenario();
+        }}
+      ]));
+      return;
+    }
+
+    const row = document.createElement("div");
+    row.className = "form-row";
+    row.innerHTML = `<label for="deleteId">#ID a borrar</label><input id="deleteId" list="deleteIds" placeholder="Ej. 100" /><datalist id="deleteIds">${Object.keys(state.records).sort(naturalSort).map(id => `<option value="${escapeHtml(id)}"></option>`).join("")}</datalist><small>Se eliminará de todas las hojas. También puedes borrar IDs errados antiguos, por ejemplo con letras.</small>`;
+    els.form.appendChild(row);
+    els.form.appendChild(createActionsRow([
+      { label: "Borrar ID", onClick: handleDeleteId }
+    ]));
   }
 
   function createIdField(scenario) {
@@ -545,7 +627,7 @@
 
   async function handleStandardCheck(scenario) {
     const id = getCleanId();
-    if (!id) return showNotice("Ingresa un ID válido.", "error");
+    if (!id) return showNotice("Ingresa un ID válido. Solo se permiten números, sin letras ni símbolos.", "error");
 
     const fieldValues = collectFields(scenario.fields || []);
     if (!fieldValues.ok) return showNotice(fieldValues.message, "error");
@@ -579,7 +661,7 @@
 
   async function handleScenario3Start(scenario) {
     const id = getCleanId();
-    if (!id) return showNotice("Busca o ingresa un ID válido.", "error");
+    if (!id) return showNotice("Busca o ingresa un ID válido. Solo se permiten números, sin letras ni símbolos.", "error");
     if (!isEligibleForScenario(id, scenario.id)) return showNotice("Este ID todavía no completó la Hoja 2.", "error");
 
     const fieldValues = collectFields(scenario.startFields);
@@ -601,7 +683,7 @@
 
   async function handleScenario3Finish(scenario) {
     const id = getCleanId();
-    if (!id) return showNotice("Busca o ingresa un ID válido.", "error");
+    if (!id) return showNotice("Busca o ingresa un ID válido. Solo se permiten números, sin letras ni símbolos.", "error");
     if (!isEligibleForScenario(id, scenario.id)) return showNotice("Este ID todavía no completó la Hoja 2.", "error");
 
     const record = state.records[id];
@@ -625,7 +707,7 @@
 
   async function handleScenario4Check(scenario) {
     const id = getCleanId();
-    if (!id) return showNotice("Ingresa un ID válido.", "error");
+    if (!id) return showNotice("Ingresa un ID válido. Solo se permiten números, sin letras ni símbolos.", "error");
 
     const reservo = document.getElementById("field-reservo")?.value;
     if (reservo !== "1" && reservo !== "0") return showNotice("Selecciona Reservó 1 o 0.", "error");
@@ -640,7 +722,11 @@
     }
 
     if (reservo === "0" && !isEligibleForScenario(id, scenario.id)) {
-      return showNotice("Reservó = 0: el ID debe existir y haber completado Hoja 3B.", "error");
+      return showNotice("Reservó = 0: el ID debe existir, haber completado Hoja 3B y no haber marcado Abandonó.", "error");
+    }
+
+    if (reservo === "1" && !isStageComplete(state.records[id], 1)) {
+      return showNotice("Reservó = 1: este ID no existe en Hoja 1. Primero debe estar registrado al ingresar por la puerta.", "error");
     }
 
     if (isStageComplete(state.records[id], scenario.id)) {
@@ -660,6 +746,30 @@
     renderAll();
   }
 
+  async function handleDeleteId() {
+    const rawId = getRawIdValue("deleteId");
+    if (!rawId) return showNotice("Ingresa el ID que deseas borrar.", "error");
+
+    try {
+      await syncBeforeWrite();
+    } catch (_) {
+      return;
+    }
+
+    if (!state.records[rawId]) {
+      renderScenario();
+      return showNotice("Ese ID no existe en la base actual.", "error");
+    }
+
+    if (!confirm(`¿Seguro que quieres borrar el ID ${rawId} de todas las hojas? Esta acción se guardará en Firebase.`)) return;
+
+    delete state.records[rawId];
+    state.history = (state.history || []).filter(item => String(item.id) !== String(rawId));
+    await persistState({ mergeRemote: false });
+    renderAll();
+    showNotice(`ID ${rawId} borrado de todas las hojas y de Firebase.`, "success");
+  }
+
   function collectFields(fields) {
     const values = {};
     for (const field of fields) {
@@ -672,7 +782,18 @@
   }
 
   function getCleanId() {
-    return String(document.getElementById("recordId")?.value || "").trim();
+    const raw = String(document.getElementById("recordId")?.value || "").trim();
+    if (!raw) return "";
+    if (!/^\d+$/.test(raw)) return "";
+    return raw;
+  }
+
+  function getRawIdValue(elementId = "recordId") {
+    return String(document.getElementById(elementId)?.value || "").trim();
+  }
+
+  function hasOnlyNumericId(value) {
+    return /^\d+$/.test(String(value || "").trim());
   }
 
   function ensureRecord(id) {
@@ -723,7 +844,16 @@
     const scenario = getScenario(scenarioId);
     if (!scenario.previous) return true;
     const record = state.records[id];
-    return isStageComplete(record, scenario.previous);
+    if (!isStageComplete(record, scenario.previous)) return false;
+    if (Number(scenarioId) === 4 && record?.stages?.[9]?.["Pagó"] === "Abandonó") return false;
+    return true;
+  }
+
+  function getHoja1Ids() {
+    return Object.values(state.records)
+      .filter(record => isStageComplete(record, 1))
+      .map(record => record.id)
+      .sort(naturalSort);
   }
 
   function getIdOptions(scenario) {
@@ -735,11 +865,22 @@
   }
 
   function countCompleted(scenarioId) {
+    const scenario = getScenario(scenarioId);
+    if (scenario?.isAdmin) return 0;
     return Object.values(state.records).filter(record => isStageComplete(record, scenarioId)).length;
   }
 
   function renderTable() {
     const scenario = getScenario(activeScenarioId);
+    if (scenario?.isAdmin) {
+      const headers = ["#ID", "Hojas registradas"];
+      const rows = Object.values(state.records).map(record => ({
+        "#ID": record.id,
+        "Hojas registradas": Object.keys(record.stages || {}).map(id => getScenario(id)?.sheet || id).join(", ")
+      })).sort((a, b) => naturalSort(a["#ID"], b["#ID"]));
+      els.table.innerHTML = `<thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead><tbody>${rows.length ? rows.map(row => `<tr>${headers.map(h => `<td>${escapeHtml(row[h] ?? "")}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${headers.length}">No hay IDs registrados.</td></tr>`}</tbody>`;
+      return;
+    }
     const rows = getRowsForScenario(scenario.id);
     const headers = [...scenario.columns, "Monitor último movimiento"];
 
@@ -773,13 +914,14 @@
 
   function exportScenarioCsv(scenarioId) {
     const scenario = getScenario(scenarioId);
+    if (scenario?.isAdmin) return showNotice("La Hoja 9 es solo para administración. Usa Exportar todo CSV para descargar la data.", "error");
     const rows = getRowsForScenario(scenarioId);
     downloadText(`${scenario.sheet.replace(/\s+/g, "_")}.csv`, toCsv(rows, [...scenario.columns, "Monitor último movimiento"]), "text/csv;charset=utf-8");
   }
 
   function exportAllCsv() {
     const allRows = [];
-    SCENARIOS.forEach(scenario => {
+    SCENARIOS.filter(scenario => !scenario.isAdmin).forEach(scenario => {
       getRowsForScenario(scenario.id).forEach(row => {
         allRows.push({ Hoja: scenario.sheet, Escenario: scenario.title, ...row });
       });

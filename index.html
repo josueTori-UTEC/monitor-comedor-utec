@@ -3,15 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Monitor comedor - 8 escenarios</title>
+  <title>Monitor comedor - registro secuencial</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <div id="navBackdrop" class="nav-backdrop hidden"></div>
+
   <header class="app-header">
-    <div>
+    <button id="menuToggle" class="menu-toggle" type="button" aria-label="Abrir menú">☰</button>
+    <div class="header-copy">
       <p class="eyebrow">Registro secuencial</p>
       <h1>Monitor comedor</h1>
-      <p class="subtitle">Sistema web basado en las 8 hojas del Excel: llegada, cola, caja, entrega y sentarse.</p>
+      <p class="subtitle">Sistema web basado en las hojas del Excel. La Hoja 3 se divide en 3A y 3B para que la registren dos monitores distintos.</p>
     </div>
     <div class="status-card">
       <span id="storageMode" class="status-pill">Cargando...</span>
@@ -20,7 +23,12 @@
   </header>
 
   <main class="layout">
-    <aside class="sidebar">
+    <aside id="sidebar" class="sidebar">
+      <div class="mobile-sidebar-head">
+        <strong>Escenarios</strong>
+        <button id="menuClose" class="secondary small-btn" type="button">Cerrar</button>
+      </div>
+
       <section class="panel compact">
         <label for="operatorName">Nombre del monitor</label>
         <input id="operatorName" type="text" placeholder="Ej. Josue" autocomplete="name" />
@@ -31,7 +39,7 @@
 
       <section class="panel compact helper-box">
         <h2>Regla principal</h2>
-        <p>Cada escenario busca IDs del escenario anterior. La Hoja 4 permite crear ID nuevo solo cuando <strong>Reservó = 1</strong>.</p>
+        <p>Cada escenario busca IDs del escenario anterior. La Hoja 3 está separada en 3A y 3B. En Hoja 4, si <strong>Reservó = 1</strong>, el ID debe existir en Hoja 1.</p>
       </section>
     </aside>
 
@@ -45,7 +53,7 @@
             <h2 id="scenarioTitle">Escenario</h2>
           </div>
           <div class="actions-inline">
-            <button id="refreshBtn" class="secondary" type="button">Actualizar</button>
+            <button id="refreshBtn" class="secondary" type="button">Actualizar datos</button>
             <button id="exportScenarioBtn" class="secondary" type="button">Exportar hoja CSV</button>
           </div>
         </div>
@@ -69,20 +77,6 @@
         <div class="table-wrap">
           <table id="recordsTable"></table>
         </div>
-      </section>
-
-      <section class="panel danger-zone">
-        <details>
-          <summary>Opciones avanzadas</summary>
-          <div class="advanced-actions">
-            <label class="file-label">
-              Importar backup JSON
-              <input id="importJsonInput" type="file" accept="application/json" />
-            </label>
-            <button id="clearLocalBtn" class="danger" type="button">Borrar datos locales</button>
-          </div>
-          <p class="muted">Borrar datos locales no borra Firebase si activaste modo multiusuario.</p>
-        </details>
       </section>
     </section>
   </main>
