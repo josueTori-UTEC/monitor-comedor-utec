@@ -133,3 +133,4 @@ Ese link lo puedes pasar por WhatsApp y abrirá en laptop o celular.
 - Si un ID ya tenía hora en una hoja, el sistema no la sobrescribe; solo completa datos faltantes.
 - Los IDs precargados de Hoja 1 van de 100 a 848, tal como el Excel.
 - Si se trabaja con varias personas, no usar solo modo local; usar Firebase.
+Deploy actualizado
