@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Monitor comedor - 8 escenarios</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">Registro secuencial</p>
+      <h1>Monitor comedor</h1>
+      <p class="subtitle">Sistema web basado en las 8 hojas del Excel: llegada, cola, caja, entrega y sentarse.</p>
+    </div>
+    <div class="status-card">
+      <span id="storageMode" class="status-pill">Cargando...</span>
+      <small id="lastSaved">Sin guardado todavía</small>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <section class="panel compact">
+        <label for="operatorName">Nombre del monitor</label>
+        <input id="operatorName" type="text" placeholder="Ej. Josue" autocomplete="name" />
+        <small>Se guardará en el historial para saber quién registró cada paso.</small>
+      </section>
+
+      <nav id="scenarioNav" class="scenario-nav" aria-label="Escenarios"></nav>
+
+      <section class="panel compact helper-box">
+        <h2>Regla principal</h2>
+        <p>Cada escenario busca IDs del escenario anterior. La Hoja 4 permite crear ID nuevo solo cuando <strong>Reservó = 1</strong>.</p>
+      </section>
+    </aside>
+
+    <section class="content">
+      <section class="dashboard" id="dashboardCards"></section>
+
+      <section class="panel">
+        <div class="section-title">
+          <div>
+            <p id="sheetName" class="eyebrow">Hoja</p>
+            <h2 id="scenarioTitle">Escenario</h2>
+          </div>
+          <div class="actions-inline">
+            <button id="refreshBtn" class="secondary" type="button">Actualizar</button>
+            <button id="exportScenarioBtn" class="secondary" type="button">Exportar hoja CSV</button>
+          </div>
+        </div>
+
+        <div id="notice" class="notice hidden"></div>
+        <div id="scenarioDescription" class="description"></div>
+        <form id="scenarioForm" class="form-grid" autocomplete="off"></form>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Vista rápida</p>
+            <h2>Registros de la hoja actual</h2>
+          </div>
+          <div class="actions-inline">
+            <button id="exportAllBtn" class="secondary" type="button">Exportar todo CSV</button>
+            <button id="downloadJsonBtn" class="secondary" type="button">Backup JSON</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="recordsTable"></table>
+        </div>
+      </section>
+
+      <section class="panel danger-zone">
+        <details>
+          <summary>Opciones avanzadas</summary>
+          <div class="advanced-actions">
+            <label class="file-label">
+              Importar backup JSON
+              <input id="importJsonInput" type="file" accept="application/json" />
+            </label>
+            <button id="clearLocalBtn" class="danger" type="button">Borrar datos locales</button>
+          </div>
+          <p class="muted">Borrar datos locales no borra Firebase si activaste modo multiusuario.</p>
+        </details>
+      </section>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
